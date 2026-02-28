@@ -40,7 +40,7 @@ export const useAuthStore = defineStore('auth', () => {
     await setDoc(doc(db, 'users', fu.uid), {
       displayName,
       email,
-      coins: 0,
+      coins: 10000,
       createdAt: new Date().toISOString(),
     })
   }
