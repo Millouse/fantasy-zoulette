@@ -47,8 +47,7 @@ async function checkAndResolve() {
         // Step 1: check if player is still in a live game with this gameId
         const live = await getLiveGame(puuid)
         if (live == null) {
-            console.log(`[AutoResolve] Player not in live game for bet ${gameId}, checking last match…`)
-            continue
+            console.log(`[AutoResolve] Player not in live game for game ${gameId}`)
         }
         if (live && String(live.gameId) === String(gameId)) {
           console.log(`[AutoResolve] Game ${gameId} still in progress, skipping.`)
@@ -65,10 +64,13 @@ async function checkAndResolve() {
         // Step 3: match the finished game to the bet's gameId
         // Riot Match IDs: "EUW1_7123456789", spectator gameId is the numeric part
         const matchNumericId = result.gameId.split('_').pop()
+        console.log("matchNumericId : ", matchNumericId)
         const betNumericId = String(gameId).split('_').pop()
+        console.log("betNumericId : ", betNumericId)
+        console.log("result : ", result)
 
         if (matchNumericId !== betNumericId) {
-          console.log(`[AutoResolve] Latest match ${result.gameId} doesn't match bet game ${gameId}, skipping.`)
+          console.log(`[AutoResolve] Latest match ${matchNumericId} doesn't match bet game ${betNumericId}, skipping.`)
           continue
         }
 
@@ -84,10 +86,10 @@ async function checkAndResolve() {
   }
 }
 
-export function startAutoResolve(intervalMs = 60_000) {
+export function startAutoResolve(intervalMs = 120_000) {
   if (intervalId) return // already running
   console.log('[AutoResolve] Started — checking every', intervalMs / 1000, 'seconds')
-//   checkAndResolve() // run immediately on start
+  checkAndResolve() // run immediately on start
   intervalId = setInterval(checkAndResolve, intervalMs)
 }
 

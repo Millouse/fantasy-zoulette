@@ -32,7 +32,7 @@
               <div class="player-details">
                 <span class="player-name">{{ p.gameName }}<span class="player-tag">#{{ p.tagLine }}</span></span>
                 <span class="player-lvl">LVL {{ p.summonerLevel }}</span>
-                <!-- <span class="player-lvl">Puuid: {{ p.puuid }}</span> -->
+                <span class="player-lvl">Puuid: {{ p.puuid }}</span>
               </div>
               <button class="btn-remove" @click="removePlayer(p.id)">✕</button>
             </div>

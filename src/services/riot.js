@@ -49,7 +49,7 @@ export async function getLiveGame(puuid) {
 // Get last match result — used to resolve bets
 export async function getLastMatchResult(puuid) {
   const matchIds = await riotFetch(
-    `${RIOT_REGION}/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?start=0&count=5`
+    `${RIOT_REGION}/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?start=0&count=1`
   )
   if (!matchIds || matchIds.length === 0) return null
 
