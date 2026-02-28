@@ -6,23 +6,24 @@ import {
 import { db } from '../firebase'
 
 // Place a bet
-export async function placeBet({ userId, playerId, playerName, prediction, amount, gameId }) {
+export async function placeBet({ userId, playerId, playerName, prediction, amount, gameId, odds }) {
   const batch = writeBatch(db)
 
   // Deduct coins from user
   const userRef = doc(db, 'users', userId)
   batch.update(userRef, { coins: increment(-amount) })
 
-  // Create bet document
+  // Create bet document — store the odds at the time of the bet
   const betRef = doc(collection(db, 'bets'))
   batch.set(betRef, {
     userId,
-    playerId,       // Firestore player doc id
+    playerId,
     playerName,
     prediction,     // 'yes' | 'no'
     amount,
-    gameId,         // Riot match/spectator game id to avoid double-betting
-    status: 'pending',  // pending | won | lost
+    odds: odds ?? 1.9, // cote au moment du pari
+    gameId,
+    status: 'pending',
     payout: 0,
     createdAt: serverTimestamp(),
   })
@@ -63,7 +64,7 @@ export async function resolveBets(gameId, playerWon) {
       (bet.prediction === 'yes' && playerWon) ||
       (bet.prediction === 'no' && !playerWon)
 
-    const payout = correctPrediction ? Math.floor(bet.amount * 1.9) : 0
+    const payout = correctPrediction ? Math.floor(bet.amount * (bet.odds ?? 1.9)) : 0
     const status = correctPrediction ? 'won' : 'lost'
 
     batch.update(doc(db, 'bets', bet.id), { status, payout })

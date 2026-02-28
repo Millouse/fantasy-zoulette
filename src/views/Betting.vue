@@ -24,11 +24,11 @@
 
       <div v-else class="players-grid">
         <PlayerBetCard
-          v-for="player in players"
+          v-for="player in visiblePlayers"
           :key="player.id"
           :player="player"
           :userCoins="authStore.coins"
-          :userId="authStore.user.uid"
+          :userId="authStore.user?.uid"
           :refreshTick="refreshTick"
           @bet-placed="onBetPlaced"
         />
@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import Navbar from '../components/Navbar.vue'
 import PlayerBetCard from '../components/PlayerBetCard.vue'
@@ -49,6 +49,13 @@ const players = ref([])
 const loading = ref(true)
 const refreshing = ref(false)
 const refreshTick = ref(0)
+
+// Hide the player matching the logged-in user's linked Riot account
+const visiblePlayers = computed(() => {
+  const userPuuid = authStore.user?.riotPuuid
+  if (!userPuuid) return players.value
+  return players.value.filter(p => p.puuid !== userPuuid)
+})
 
 async function loadPlayers() {
   players.value = await getPlayers()
@@ -62,16 +69,10 @@ async function refreshAll() {
 
 function onBetPlaced() {}
 
-watch(
-  () => authStore.user,
-  async (user) => {
-    if (!user) return
-    loading.value = true
-    await loadPlayers()
-    loading.value = false
-  },
-  { immediate: true }
-)
+onMounted(async () => {
+  await loadPlayers()
+  loading.value = false
+})
 </script>
 
 <style scoped>

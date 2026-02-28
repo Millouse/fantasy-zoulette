@@ -1,24 +1,16 @@
 <template>
   <div class="bet-card" :class="{ 'is-live': liveGame, 'is-offline': !liveGame && !checking }">
-    <!-- Header -->
     <div class="card-header">
       <img :src="`/assets/16.4.1/img/profileicon/${player.profileIconId}.png`" class="player-icon" alt="icon" />
       <div class="player-info">
         <div class="player-name">{{ player.gameName }}</div>
         <div class="player-level">LVL {{ player.summonerLevel }}</div>
       </div>
-      <div class="live-indicator" v-if="liveGame">
-        <span class="live-dot"></span> LIVE
-      </div>
-      <div class="offline-indicator" v-else-if="!checking">
-        NOT IN GAME
-      </div>
-      <div class="checking-indicator" v-else>
-        <span class="checking-dot"></span>
-      </div>
+      <div class="live-indicator" v-if="liveGame"><span class="live-dot"></span> LIVE</div>
+      <div class="offline-indicator" v-else-if="!checking">NOT IN GAME</div>
+      <div class="checking-indicator" v-else><span class="checking-dot"></span></div>
     </div>
 
-    <!-- Live game info -->
     <div v-if="liveGame" class="game-info">
       <div class="game-detail">
         <span class="detail-label">Game Mode</span>
@@ -34,7 +26,28 @@
       </div>
     </div>
 
-    <!-- Bet already placed -->
+    <div v-if="liveGame && !existingBet" class="odds-banner">
+      <div class="rank-badge" :class="odds.tier.toLowerCase()">
+        <span class="rank-icon">{{ tierIcon(odds.tier) }}</span>
+        <span>{{ odds.tier === 'UNRANKED' ? 'Unranked' : odds.tier + ' ' + odds.rank }}</span>
+      </div>
+      <div class="odds-row">
+        <div class="odd-box yes" :class="{ selected: prediction === 'yes' }" @click="prediction = 'yes'">
+          <span class="odd-label">WIN</span>
+          <span class="odd-val">{{ oddsLoading ? '...' : odds.yes }}x</span>
+        </div>
+        <div class="odd-box no" :class="{ selected: prediction === 'no' }" @click="prediction = 'no'">
+          <span class="odd-label">LOSE</span>
+          <span class="odd-val">{{ oddsLoading ? '...' : odds.no }}x</span>
+        </div>
+      </div>
+      <div class="bet-volume" v-if="odds.totalYes + odds.totalNo > 0">
+        <span class="vol-yes">{{ odds.totalYes.toLocaleString() }} ZC</span>
+        <div class="vol-bar"><div class="vol-fill-yes" :style="{ width: yesPercent + '%' }"></div></div>
+        <span class="vol-no">{{ odds.totalNo.toLocaleString() }} ZC</span>
+      </div>
+    </div>
+
     <div v-if="existingBet" class="existing-bet">
       <div class="existing-bet-label">Your bet</div>
       <div class="existing-bet-choice" :class="existingBet.prediction">
@@ -44,32 +57,17 @@
       <div class="existing-bet-note">Resolves when the game ends</div>
     </div>
 
-    <!-- Bet form (only if live and no existing bet) -->
     <div v-else-if="liveGame && !existingBet" class="bet-form">
       <div class="question">Will <strong>{{ player.gameName }}</strong> win?</div>
       <div class="prediction-buttons">
-        <button
-          class="btn-yes" :class="{ active: prediction === 'yes' }"
-          @click="prediction = 'yes'"
-        >✓ YES</button>
-        <button
-          class="btn-no" :class="{ active: prediction === 'no' }"
-          @click="prediction = 'no'"
-        >✗ NO</button>
+        <button class="btn-yes" :class="{ active: prediction === 'yes' }" @click="prediction = 'yes'">✓ YES</button>
+        <button class="btn-no" :class="{ active: prediction === 'no' }" @click="prediction = 'no'">✗ NO</button>
       </div>
-
       <br/>
       <div class="amount-row">
         <div class="amount-input-wrap">
           <span class="coin-sym">🪙</span>
-          <input
-            v-model.number="betAmount"
-            type="number"
-            min="1"
-            :max="userCoins"
-            placeholder="Amount"
-            class="amount-input"
-          />
+          <input v-model.number="betAmount" type="number" min="1" :max="userCoins" placeholder="Amount" class="amount-input" />
         </div>
         <div class="quick-amounts">
           <button v-for="q in quickAmounts" :key="q" class="quick-btn" @click="betAmount = Math.min(q, userCoins)">
@@ -80,21 +78,16 @@
       </div>
       <br/>
       <div class="payout-preview" v-if="betAmount > 0">
-        Potential win: <span class="payout-amt">+{{ Math.floor(betAmount * 1.9).toLocaleString() }} ZC</span>
+        Potential win: <span class="payout-amt">+{{ potentialPayout.toLocaleString() }} ZC</span>
+        <span class="odds-tag">@ {{ currentOddsVal }}x</span>
       </div>
       <br/>
-      <div v-if="betError" class="error-msg" style="margin-top:10px;font-size:12px">{{ betError }}</div>
-
-      <button
-        class="btn-place"
-        @click="placeBet"
-        :disabled="!prediction || !betAmount || betAmount < 1 || placing || betAmount > userCoins"
-      >
-        {{ placing ? 'Placing…' : '⚡ Place Bet' }}
+      <div v-if="betError" class="error-msg">{{ betError }}</div>
+      <button class="btn-place" @click="placeBet" :disabled="!prediction || !betAmount || betAmount < 1 || placing || betAmount > userCoins">
+        {{ placing ? 'Placing...' : '⚡ Place Bet' }}
       </button>
     </div>
 
-    <!-- Not in game -->
     <div v-else-if="!liveGame && !checking" class="no-game">
       <span>{{ player.gameName }} is not in a game right now.</span>
     </div>
@@ -105,6 +98,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { getLiveGame } from '../services/riot'
 import { placeBet as placeBetService, hasUserBetOnGame, getUserBets } from '../services/bets'
+import { computeOdds } from '../services/odds'
 
 const props = defineProps({
   player: Object,
@@ -121,12 +115,13 @@ const prediction = ref('')
 const betAmount = ref(null)
 const placing = ref(false)
 const betError = ref('')
-
+const odds = ref({ yes: 1.9, no: 1.9, tier: 'UNRANKED', rank: '', totalYes: 0, totalNo: 0 })
+const oddsLoading = ref(false)
 const quickAmounts = [50, 100, 250, 500]
 
 const gameMode = computed(() => {
   if (!liveGame.value) return ''
-  const modes = { CLASSIC: "Summoner's Rift", ARAM: 'ARAM', URF: 'URF' }
+  const modes = { CLASSIC: 'Summoner\u2019s Rift', ARAM: 'ARAM', URF: 'URF' }
   return modes[liveGame.value.gameMode] || liveGame.value.gameMode
 })
 
@@ -138,12 +133,35 @@ const gameDuration = computed(() => {
   return `${m}:${String(sec).padStart(2, '0')}`
 })
 
+const currentOddsVal = computed(() => {
+  return prediction.value === 'yes' ? odds.value.yes : odds.value.no
+})
+
+const potentialPayout = computed(() => {
+  return betAmount.value ? Math.floor(betAmount.value * currentOddsVal.value) : 0
+})
+
+const yesPercent = computed(() => {
+  const total = odds.value.totalYes + odds.value.totalNo
+  if (!total) return 50
+  return Math.round((odds.value.totalYes / total) * 100)
+})
+
 function formatGameDuration(duration) {
   const [m, s] = duration.split(':').map(Number)
   const totalSeconds = m * 60 + s + 120
   const newM = Math.floor(totalSeconds / 60)
   const newS = totalSeconds % 60
   return `${newM}:${String(newS).padStart(2, '0')}`
+}
+
+function tierIcon(tier) {
+  const icons = {
+    IRON: '🩶', BRONZE: '🥉', SILVER: '🥈', GOLD: '🥇',
+    PLATINUM: '💎', EMERALD: '💚', DIAMOND: '💠',
+    MASTER: '🔮', GRANDMASTER: '🔴', CHALLENGER: '👑', UNRANKED: '❓'
+  }
+  return icons[tier] || '❓'
 }
 
 function championIdToName(champId) {
@@ -186,17 +204,21 @@ function championIdToName(champId) {
 }
 
 async function checkLiveGame() {
+  if (!props.userId) return
   checking.value = true
   try {
     const game = await getLiveGame(props.player.puuid)
     liveGame.value = game
-
-    if (game) {
+    if (game && props.userId) {
       const alreadyBet = await hasUserBetOnGame(props.userId, String(game.gameId))
       if (alreadyBet) {
         const bets = await getUserBets(props.userId)
         existingBet.value = bets.find(b => b.gameId === String(game.gameId) && b.playerId === props.player.id) || null
       }
+      oddsLoading.value = true
+      computeOdds(props.player, String(game.gameId))
+        .then(o => { odds.value = o })
+        .finally(() => { oddsLoading.value = false })
     }
   } catch (e) {
     liveGame.value = null
@@ -211,6 +233,7 @@ async function placeBet() {
   if (!betAmount.value || betAmount.value < 1) { betError.value = 'Enter a valid amount.'; return }
   if (betAmount.value > props.userCoins) { betError.value = 'Not enough ZouletteCoins.'; return }
 
+  const currentOdds = currentOddsVal.value
   placing.value = true
   try {
     await placeBetService({
@@ -220,8 +243,9 @@ async function placeBet() {
       prediction: prediction.value,
       amount: betAmount.value,
       gameId: String(liveGame.value.gameId),
+      odds: currentOdds,
     })
-    existingBet.value = { prediction: prediction.value, amount: betAmount.value }
+    existingBet.value = { prediction: prediction.value, amount: betAmount.value, odds: currentOdds }
     emit('bet-placed')
   } catch (e) {
     console.error('placeBet error:', e)
@@ -251,10 +275,7 @@ watch(() => props.refreshTick, (val) => {
   padding: 20px;
   transition: border-color 0.2s;
 }
-.bet-card.is-live {
-  border-color: rgba(0, 255, 136, 0.3);
-  box-shadow: 0 0 20px rgba(0,255,136,0.06);
-}
+.bet-card.is-live { border-color: rgba(0,255,136,0.3); box-shadow: 0 0 20px rgba(0,255,136,0.06); }
 .bet-card.is-offline { opacity: 0.6; }
 
 .card-header { align-items: center; display: flex; gap: 14px; }
@@ -265,149 +286,108 @@ watch(() => props.refreshTick, (val) => {
 .player-level { color: var(--text-muted); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
 
 .live-indicator {
-  align-items: center;
-  background: rgba(0,255,136,0.1);
-  border: 1px solid rgba(0,255,136,0.4);
-  border-radius: 20px;
-  color: var(--green);
-  display: flex;
-  font-size: 11px;
-  font-weight: 700;
-  gap: 6px;
-  letter-spacing: 0.08em;
-  padding: 4px 10px;
+  align-items: center; background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.4);
+  border-radius: 20px; color: var(--green); display: flex; font-size: 11px; font-weight: 700;
+  gap: 6px; letter-spacing: 0.08em; padding: 4px 10px;
 }
-.live-dot {
-  animation: blink 1s ease infinite;
-  background: var(--green);
-  border-radius: 50%;
-  height: 7px;
-  width: 7px;
-}
+.live-dot { animation: blink 1s ease infinite; background: var(--green); border-radius: 50%; height: 7px; width: 7px; }
 @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
 
 .offline-indicator {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  color: var(--text-dim);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 4px 10px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 20px;
+  color: var(--text-dim); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; padding: 4px 10px;
 }
 .checking-indicator { padding: 4px 10px; }
-.checking-dot {
-  animation: blink 0.8s ease infinite;
-  background: var(--text-muted);
-  border-radius: 50%;
-  display: block;
-  height: 8px;
-  width: 8px;
-}
+.checking-dot { animation: blink 0.8s ease infinite; background: var(--text-muted); border-radius: 50%; display: block; height: 8px; width: 8px; }
 
-.game-info {
-  background: var(--surface2);
-  border-radius: 8px;
-  display: flex;
-  gap: 0;
-  overflow: hidden;
-}
-.game-detail {
-  align-items: center;
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  justify-content: center;
-  padding: 10px 12px;
-}
+.game-info { background: var(--surface2); border-radius: 8px; display: flex; overflow: hidden; }
+.game-detail { align-items: center; border-right: 1px solid var(--border); display: flex; flex: 1; flex-direction: column; justify-content: center; padding: 10px 12px; }
 .game-detail:last-child { border-right: none; }
 .detail-label { color: var(--text-dim); display: block; font-size: 10px; letter-spacing: 0.08em; margin-bottom: 4px; text-transform: uppercase; }
 .detail-val { font-size: 13px; font-weight: 600; }
 
-.question {
-  color: var(--text-muted);
-  font-size: 14px;
-  margin-bottom: 2px;
-  text-align: center;
+.odds-banner { display: flex; flex-direction: column; gap: 10px; }
+
+.rank-badge {
+  align-items: center; align-self: flex-start; background: var(--surface2); border: 1px solid var(--border-bright);
+  border-radius: 20px; color: var(--text-muted); display: flex; font-size: 11px; font-weight: 700;
+  gap: 6px; letter-spacing: 0.06em; padding: 4px 12px; text-transform: uppercase;
 }
+.rank-badge.iron { border-color: #8a8a8a44; color: #8a8a8a; }
+.rank-badge.bronze { border-color: #cd7f3244; color: #cd7f32; }
+.rank-badge.silver { border-color: #c0c0c044; color: #c0c0c0; }
+.rank-badge.gold { border-color: rgba(255,200,0,0.4); color: var(--gold); }
+.rank-badge.platinum { border-color: #00c9b144; color: #00c9b1; }
+.rank-badge.emerald { border-color: #00ff8844; color: var(--green); }
+.rank-badge.diamond { border-color: #4fc3f744; color: #4fc3f7; }
+.rank-badge.master { border-color: #ab47bc44; color: #ab47bc; }
+.rank-badge.grandmaster { border-color: #ef535044; color: #ef5350; }
+.rank-badge.challenger { border-color: rgba(0,212,255,0.4); color: var(--cyan); }
+.rank-icon { font-size: 14px; }
+
+.odds-row { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
+.odd-box {
+  align-items: center; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between;
+  padding: 10px 14px; transition: all 0.2s;
+}
+.odd-box.yes { border-color: rgba(0,255,136,0.3); }
+.odd-box.yes.selected, .odd-box.yes:hover { background: rgba(0,255,136,0.12); border-color: var(--green); }
+.odd-box.no { border-color: rgba(255,71,87,0.3); }
+.odd-box.no.selected, .odd-box.no:hover { background: rgba(255,71,87,0.12); border-color: var(--red); }
+.odd-label { color: var(--text-muted); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+.odd-val { font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700; }
+.odd-box.yes .odd-val { color: var(--green); }
+.odd-box.no .odd-val { color: var(--red); }
+
+.bet-volume { align-items: center; display: flex; font-size: 11px; gap: 8px; }
+.vol-yes { color: var(--green); font-weight: 600; white-space: nowrap; }
+.vol-no { color: var(--red); font-weight: 600; white-space: nowrap; }
+.vol-bar { background: rgba(255,71,87,0.25); border-radius: 4px; flex: 1; height: 6px; overflow: hidden; }
+.vol-fill-yes { background: var(--green); border-radius: 4px; height: 100%; transition: width 0.5s ease; }
+
+.question { color: var(--text-muted); font-size: 14px; margin-bottom: 2px; text-align: center; }
 .question strong { color: var(--text); font-weight: 700; }
 
 .prediction-buttons { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
 
 .amount-row { display: flex; flex-direction: column; gap: 8px; }
 .amount-input-wrap { align-items: center; display: flex; gap: 8px; position: relative; }
-.coin-sym { font-size: 18px; position: absolute; left: 12px; pointer-events: none; }
+.coin-sym { font-size: 18px; left: 12px; pointer-events: none; position: absolute; }
 .amount-input { padding-left: 36px !important; }
 
 .quick-amounts { display: flex; gap: 6px; }
 .quick-btn {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  padding: 5px;
-  transition: border-color 0.2s, color 0.2s;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-muted); flex: 1; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em; padding: 5px; transition: border-color 0.2s, color 0.2s;
 }
 .quick-btn:hover { border-color: var(--cyan); color: var(--cyan); }
 
-.payout-preview {
-  color: var(--text-muted);
-  font-size: 12px;
-  text-align: center;
-}
+.payout-preview { color: var(--text-muted); font-size: 12px; text-align: center; }
 .payout-amt { color: var(--green); font-weight: 700; }
+.odds-tag { color: var(--text-dim); font-size: 11px; margin-left: 6px; }
 
 .btn-place {
   background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,255,136,0.1));
-  border: 1px solid var(--cyan);
-  border-radius: 8px;
-  color: var(--cyan);
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 12px;
-  text-transform: uppercase;
-  transition: background 0.2s, box-shadow 0.2s;
-  width: 100%;
+  border: 1px solid var(--cyan); border-radius: 8px; color: var(--cyan);
+  font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700;
+  letter-spacing: 0.08em; padding: 12px; text-transform: uppercase;
+  transition: background 0.2s, box-shadow 0.2s; width: 100%;
 }
-.btn-place:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(0,212,255,0.25), rgba(0,255,136,0.2));
-  box-shadow: 0 0 20px rgba(0,212,255,0.2);
-}
+.btn-place:hover:not(:disabled) { background: linear-gradient(135deg, rgba(0,212,255,0.25), rgba(0,255,136,0.2)); box-shadow: 0 0 20px rgba(0,212,255,0.2); }
 .btn-place:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.existing-bet {
-  background: var(--surface2);
-  border: 1px solid var(--border-bright);
-  border-radius: 10px;
-  padding: 14px;
-  text-align: center;
-}
+.existing-bet { background: var(--surface2); border: 1px solid var(--border-bright); border-radius: 10px; padding: 14px; text-align: center; }
 .existing-bet-label { color: var(--text-muted); font-size: 11px; letter-spacing: 0.08em; margin-bottom: 6px; text-transform: uppercase; }
-.existing-bet-choice {
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  margin-bottom: 4px;
-}
+.existing-bet-choice { font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 4px; }
 .existing-bet-choice.yes { color: var(--green); }
 .existing-bet-choice.no { color: var(--red); }
 .existing-bet-note { color: var(--text-dim); font-size: 11px; }
 
-.no-game {
-  color: var(--text-dim);
-  font-size: 13px;
-  padding: 8px 0;
-  text-align: center;
-}
+.error-msg { color: var(--red); font-size: 12px; margin-top: 10px; text-align: center; }
+
+.no-game { color: var(--text-dim); font-size: 13px; padding: 8px 0; text-align: center; }
 
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(12px); }
