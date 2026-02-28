@@ -2,7 +2,7 @@
   <div class="bet-card" :class="{ 'is-live': liveGame, 'is-offline': !liveGame && !checking }">
     <!-- Header -->
     <div class="card-header">
-      <img :src="`/src/assets/16.4.1/img/profileicon/${player.profileIconId}.png`" class="player-icon" alt="icon" />
+      <img :src="`/assets/16.4.1/img/profileicon/${player.profileIconId}.png`" class="player-icon" alt="icon" />
       <div class="player-info">
         <div class="player-name">{{ player.gameName }}</div>
         <div class="player-level">LVL {{ player.summonerLevel }}</div>
@@ -30,7 +30,7 @@
       </div>
       <div class="game-detail">
         <span class="detail-label">Champion</span>
-        <img :src="`/src/assets/16.4.1/img/champion/${championIdToName(liveGame.participants[0].championId)}.png`" class="champ-icon" />
+        <img :src="`/assets/16.4.1/img/champion/${championIdToName(liveGame.participants[0].championId)}.png`" class="champ-icon" />
       </div>
     </div>
 

@@ -28,7 +28,7 @@
             <div v-if="playersLoading" class="muted-text">Loading players…</div>
             <div v-else-if="players.length === 0" class="muted-text">No players added yet.</div>
             <div v-for="p in players" :key="p.id" class="player-row">
-              <img :src="`/src/assets/16.4.1/img/profileicon/${p.profileIconId}.png`" class="player-icon" />
+              <img :src="`/assets/16.4.1/img/profileicon/${p.profileIconId}.png`" class="player-icon" />
               <div class="player-details">
                 <span class="player-name">{{ p.gameName }}<span class="player-tag">#{{ p.tagLine }}</span></span>
                 <span class="player-lvl">LVL {{ p.summonerLevel }}</span>
