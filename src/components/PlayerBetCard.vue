@@ -54,38 +54,54 @@
         {{ existingBet.prediction === 'yes' ? '✓ WIN' : '✗ LOSE' }}
         — {{ existingBet.amount.toLocaleString() }} ZC
       </div>
+      <div class="existing-bet-payout">
+        Potential payout: <span class="payout-highlight">+{{ Math.floor(existingBet.amount * (existingBet.odds || 1.9)).toLocaleString() }} ZC</span>
+      </div>
       <div class="existing-bet-note">Resolves when the game ends</div>
     </div>
 
     <div v-else-if="liveGame && !existingBet" class="bet-form">
-      <div class="question">Will <strong>{{ player.gameName }}</strong> win?</div>
-      <div class="prediction-buttons">
-        <button class="btn-yes" :class="{ active: prediction === 'yes' }" @click="prediction = 'yes'">✓ YES</button>
-        <button class="btn-no" :class="{ active: prediction === 'no' }" @click="prediction = 'no'">✗ NO</button>
+      <!-- Locked state -->
+      <div v-if="betLocked" class="bet-locked">
+        <div class="lock-icon">🔒</div>
+        <div class="lock-title">Bets Closed</div>
+        <div class="lock-sub">Betting is locked after 10 minutes of play</div>
       </div>
-      <br/>
-      <div class="amount-row">
-        <div class="amount-input-wrap">
-          <span class="coin-sym">🪙</span>
-          <input v-model.number="betAmount" type="number" min="1" :max="userCoins" placeholder="Amount" class="amount-input" />
+
+      <!-- Open state -->
+      <template v-else>
+        <div class="question">Will <strong>{{ player.gameName }}</strong> win?</div>
+        <div v-if="timeUntilLock" class="lock-countdown">
+          ⏳ Bets close in <strong>{{ timeUntilLock }}</strong>
         </div>
-        <div class="quick-amounts">
-          <button v-for="q in quickAmounts" :key="q" class="quick-btn" @click="betAmount = Math.min(q, userCoins)">
-            {{ q >= 1000 ? q/1000 + 'k' : q }}
-          </button>
-          <button class="quick-btn" @click="betAmount = userCoins">MAX</button>
+        <div class="prediction-buttons">
+          <button class="btn-yes" :class="{ active: prediction === 'yes' }" @click="prediction = 'yes'">✓ YES</button>
+          <button class="btn-no" :class="{ active: prediction === 'no' }" @click="prediction = 'no'">✗ NO</button>
         </div>
-      </div>
-      <br/>
-      <div class="payout-preview" v-if="betAmount > 0">
-        Potential win: <span class="payout-amt">+{{ potentialPayout.toLocaleString() }} ZC</span>
-        <span class="odds-tag">@ {{ currentOddsVal }}x</span>
-      </div>
-      <br/>
-      <div v-if="betError" class="error-msg">{{ betError }}</div>
-      <button class="btn-place" @click="placeBet" :disabled="!prediction || !betAmount || betAmount < 1 || placing || betAmount > userCoins">
-        {{ placing ? 'Placing...' : '⚡ Place Bet' }}
-      </button>
+        <br/>
+        <div class="amount-row">
+          <div class="amount-input-wrap">
+            <span class="coin-sym">🪙</span>
+            <input v-model.number="betAmount" type="number" min="1" :max="userCoins" placeholder="Amount" class="amount-input" />
+          </div>
+          <div class="quick-amounts">
+            <button v-for="q in quickAmounts" :key="q" class="quick-btn" @click="betAmount = Math.min(q, userCoins)">
+              {{ q >= 1000 ? q/1000 + 'k' : q }}
+            </button>
+            <button class="quick-btn" @click="betAmount = userCoins">MAX</button>
+          </div>
+        </div>
+        <br/>
+        <div class="payout-preview" v-if="betAmount > 0">
+          Potential win: <span class="payout-amt">+{{ potentialPayout.toLocaleString() }} ZC</span>
+          <span class="odds-tag">@ {{ currentOddsVal }}x</span>
+        </div>
+        <br/>
+        <div v-if="betError" class="error-msg">{{ betError }}</div>
+        <button class="btn-place" @click="placeBet" :disabled="!prediction || !betAmount || betAmount < 1 || placing || betAmount > userCoins">
+          {{ placing ? 'Placing...' : '⚡ Place Bet' }}
+        </button>
+      </template>
     </div>
 
     <div v-else-if="!liveGame && !checking" class="no-game">
@@ -118,6 +134,22 @@ const betError = ref('')
 const odds = ref({ yes: 1.9, no: 1.9, tier: 'UNRANKED', rank: '', totalYes: 0, totalNo: 0 })
 const oddsLoading = ref(false)
 const quickAmounts = [50, 100, 250, 500]
+
+const BET_LOCK_SECONDS = 600 // 10 minutes
+
+const betLocked = computed(() => {
+  if (!liveGame.value) return false
+  return liveGame.value.gameLength >= BET_LOCK_SECONDS
+})
+
+const timeUntilLock = computed(() => {
+  if (!liveGame.value) return null
+  const remaining = BET_LOCK_SECONDS - liveGame.value.gameLength
+  if (remaining <= 0) return null
+  const m = Math.floor(remaining / 60)
+  const s = Math.floor(remaining % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+})
 
 const gameMode = computed(() => {
   if (!liveGame.value) return ''
@@ -229,6 +261,7 @@ async function checkLiveGame() {
 
 async function placeBet() {
   betError.value = ''
+  if (betLocked.value) { betError.value = 'Bets are locked after 10 minutes.'; return }
   if (!prediction.value) { betError.value = 'Choose YES or NO.'; return }
   if (!betAmount.value || betAmount.value < 1) { betError.value = 'Enter a valid amount.'; return }
   if (betAmount.value > props.userCoins) { betError.value = 'Not enough ZouletteCoins.'; return }
@@ -385,7 +418,35 @@ watch(() => props.refreshTick, (val) => {
 .existing-bet-choice.no { color: var(--red); }
 .existing-bet-note { color: var(--text-dim); font-size: 11px; }
 
-.error-msg { color: var(--red); font-size: 12px; margin-top: 10px; text-align: center; }
+.existing-bet-payout { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+.payout-highlight { color: var(--green); font-weight: 700; }
+
+.bet-locked {
+  align-items: center;
+  background: rgba(255,71,87,0.06);
+  border: 1px solid rgba(255,71,87,0.2);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px;
+  text-align: center;
+}
+.lock-icon { font-size: 28px; }
+.lock-title { color: var(--red); font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.lock-sub { color: var(--text-dim); font-size: 12px; }
+
+.lock-countdown {
+  background: rgba(255,200,0,0.08);
+  border: 1px solid rgba(255,200,0,0.25);
+  border-radius: 8px;
+  color: var(--gold);
+  font-size: 12px;
+  margin-bottom: 4px;
+  padding: 6px 12px;
+  text-align: center;
+}
+.lock-countdown strong { font-weight: 700; }
 
 .no-game { color: var(--text-dim); font-size: 13px; padding: 8px 0; text-align: center; }
 
