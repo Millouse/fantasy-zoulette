@@ -46,6 +46,10 @@ async function checkAndResolve() {
       try {
         // Step 1: check if player is still in a live game with this gameId
         const live = await getLiveGame(puuid)
+        if (live == null) {
+            console.log(`[AutoResolve] Player not in live game for bet ${gameId}, checking last match…`)
+            continue
+        }
         if (live && String(live.gameId) === String(gameId)) {
           console.log(`[AutoResolve] Game ${gameId} still in progress, skipping.`)
           continue
@@ -83,7 +87,7 @@ async function checkAndResolve() {
 export function startAutoResolve(intervalMs = 60_000) {
   if (intervalId) return // already running
   console.log('[AutoResolve] Started — checking every', intervalMs / 1000, 'seconds')
-  checkAndResolve() // run immediately on start
+//   checkAndResolve() // run immediately on start
   intervalId = setInterval(checkAndResolve, intervalMs)
 }
 

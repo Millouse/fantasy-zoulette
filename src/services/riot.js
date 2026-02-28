@@ -2,17 +2,25 @@
 import { RIOT_API_KEY, RIOT_PLATFORM, RIOT_REGION } from '../config'
 
 async function riotFetch(url) {
-  let res
   try {
-    res = await fetch(url, {
+    const res = await fetch(url, {
       headers: { 'X-Riot-Token': RIOT_API_KEY }
-    })
+    });
+
+    if (res.status === 404) {
+      return null; 
+    }
+
+    if (!res.ok) {
+      console.error(`Riot API Error: ${res.status}`);
+      return null;
+    }
+
+    return await res.json();
   } catch (e) {
-    if (e.status === 404) return null
-    if (!e.ok) throw new Error(`Riot API error: ${res.status}`)
+    console.error("Network error:", e);
+    return null;
   }
-  if (res) return res.json()
-  return null
 }
 
 // Resolve PUUID from Riot ID (gameName + tagLine) — uses Account v1
@@ -31,15 +39,11 @@ export async function getSummonerByPuuid(puuid) {
 
 // Check if a player is currently in a live game — spectator v5 supports puuid directly
 export async function getLiveGame(puuid) {
-  try {
-    const live = await riotFetch(
-      `${RIOT_PLATFORM}/lol/spectator/v5/active-games/by-summoner/${encodeURIComponent(puuid)}`
-    )
-    if (!live) return null
-    return live
-  } catch (e) {
-    console.log("Error : ", e)
-  }
+  const live = await riotFetch(
+    `${RIOT_PLATFORM}/lol/spectator/v5/active-games/by-summoner/${encodeURIComponent(puuid)}`
+  );
+  
+  return live;
 }
 
 // Get last match result — used to resolve bets
