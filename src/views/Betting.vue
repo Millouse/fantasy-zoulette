@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import Navbar from '../components/Navbar.vue'
 import PlayerBetCard from '../components/PlayerBetCard.vue'
@@ -62,10 +62,16 @@ async function refreshAll() {
 
 function onBetPlaced() {}
 
-onMounted(async () => {
-  await loadPlayers()
-  loading.value = false
-})
+watch(
+  () => authStore.user,
+  async (user) => {
+    if (!user) return
+    loading.value = true
+    await loadPlayers()
+    loading.value = false
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>
