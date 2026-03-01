@@ -1,50 +1,59 @@
 // src/services/discord.js
 import { DISCORD_WEBHOOK_URL } from '../config'
 
-const TIER_COLOR = {
-  CHALLENGER: 0x00d4ff,
-  GRANDMASTER: 0xef5350,
-  MASTER: 0xab47bc,
-  DIAMOND: 0x4fc3f7,
-  EMERALD: 0x00ff88,
-  PLATINUM: 0x00c9b1,
-  GOLD: 0xffc800,
-  SILVER: 0xc0c0c0,
-  BRONZE: 0xcd7f32,
-  IRON: 0x8a8a8a,
-  UNRANKED: 0x444466,
-}
-
 /**
- * Send a Discord embed when a user places a bet.
+ * Envoie un récap Discord quand les paris sont fermés (10min écoulées).
+ * Tag le joueur concerné s'il a un discord username.
+ *
  * @param {Object} p
- * p.userName       — display name of the bettor
- * p.playerName     — gameName of the tracked player
- * p.prediction     — 'yes' | 'no'
- * p.amount         — coins wagered
- * p.odds           — odds at time of bet
- * p.payout         — potential payout
- * p.gameId         — Riot game ID
- * p.tier           — player rank tier (e.g. 'GOLD')
- * p.rank           — player rank division (e.g. 'II')
+ * p.playerName      — gameName du joueur
+ * p.discordUsername — pseudo discord du joueur (optionnel)
+ * p.gameId          — Riot game ID
+ * p.totalZC         — total de ZC misés
+ * p.totalYesZC      — ZC misés sur WIN
+ * p.totalNoZC       — ZC misés sur LOSE
+ * p.totalBets       — nombre de paris
  */
-export async function notifyBetPlaced({ userName, discordUsername, playerName, prediction, amount, odds, payout, gameId, tier, rank }) {
+export async function notifyBetsLocked({ playerName, discordUsername, gameId, totalZC, totalYesZC, totalNoZC, totalBets }) {
   if (!DISCORD_WEBHOOK_URL) return
 
-  const won = prediction === 'yes'
-  const predLabel = won ? '✅ WIN' : '❌ LOSE'
+  const yesPercent = totalZC > 0 ? Math.round((totalYesZC / totalZC) * 100) : 50
+  const noPercent = 100 - yesPercent
+
+  const barLength = 20
+  const yesFill = Math.round((yesPercent / 100) * barLength)
+  const noFill = barLength - yesFill
+  const bar = '🟩'.repeat(yesFill) + '🟥'.repeat(noFill)
+
+  const mention = discordUsername ? `<@${discordUsername}>` : `**${playerName}**`
 
   const embed = {
-    title: `🚨🚨🚨🚨🚨 NOUVEAU BET 🚨🚨🚨🚨🚨`,
+    title: `:alert: BETS FERMÉS — ${playerName} :alert:`,
     color: 0xFF6600,
+    description: `Les paris sont fermés ! Voici le récap des mises sur la game de ${mention}.`,
     fields: [
-      { name: '👤 BETTOR', value: userName, inline: true },
-      { name: '🎮 PLAYER', value: playerName, inline: true },
-      { name: '📊 PREDICTION', value: predLabel, inline: true },
-      { name: '🪙 ZOULETTESCOINS', value: `${amount.toLocaleString()} ZC`, inline: true },
-      { name: '💰 POTENTIAL PAYOUT', value: `+${payout.toLocaleString()} ZC @ ${odds}x`, inline: true },
+      {
+        name: '🪙 TOTAL MISÉ',
+        value: `**${totalZC.toLocaleString()} ZC** sur ${totalBets} pari${totalBets > 1 ? 's' : ''}`,
+        inline: false,
+      },
+      {
+        name: `✅ WIN — ${yesPercent}%`,
+        value: `${totalYesZC.toLocaleString()} ZC`,
+        inline: true,
+      },
+      {
+        name: `❌ LOSE — ${noPercent}%`,
+        value: `${totalNoZC.toLocaleString()} ZC`,
+        inline: true,
+      },
+      {
+        name: '📊 RÉPARTITION',
+        value: bar,
+        inline: false,
+      },
     ],
-    footer: { text: 'ZouletteGG • Bet placed' },
+    footer: { text: `ZouletteGG • Game ${gameId}` },
     timestamp: new Date().toISOString(),
   }
 
@@ -53,7 +62,7 @@ export async function notifyBetPlaced({ userName, discordUsername, playerName, p
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: discordUsername ? `@${discordUsername} quelqu'un bet sur toi !` : null,
+        content: discordUsername ? `@${discordUsername} les paris sur ta game sont fermés !` : null,
         embeds: [embed],
       }),
     })

@@ -1,14 +1,10 @@
 <template>
   <div class="bet-card" :class="{ 'is-live': liveGame, 'is-offline': !liveGame && !checking }">
-    <div v-if="rateLimited || tooManyRequests" class="rate-limit-banner">
-      🚫 Too many requests — please wait a moment and try again.
-    </div>
     <div class="card-header">
       <img :src="`/assets/16.4.1/img/profileicon/${player.profileIconId}.png`" class="player-icon" alt="icon" />
       <div class="player-info">
         <div class="player-name">{{ player.gameName }}</div>
         <div class="player-level">LVL {{ player.summonerLevel }}</div>
-        <!-- <div class="player-level">puiid : {{ player.puuid }}</div> -->
       </div>
       <div class="live-indicator" v-if="liveGame"><span class="live-dot"></span> LIVE</div>
       <div class="offline-indicator" v-else-if="!checking">NOT IN GAME</div>
@@ -116,7 +112,6 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { subscribeLiveGame } from '../services/liveGameCache'
 import { placeBet as placeBetService, hasUserBetOnGame, getUserBets } from '../services/bets'
 import { computeOdds } from '../services/odds'
-import { notifyBetPlaced } from '../services/discord'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
@@ -126,13 +121,11 @@ const props = defineProps({
   userCoins: Number,
   userId: String,
   refreshTick: Number,
-  tooManyRequests: Boolean
 })
 const emit = defineEmits(['bet-placed'])
 
 const liveGame = ref(null)
 const checking = ref(true)
-const rateLimited = ref(false)
 const existingBet = ref(null)
 const prediction = ref('')
 const betAmount = ref(null)
@@ -411,7 +404,7 @@ async function onCacheUpdate({ gameData, isLive, fetchedAt }) {
     }
 
     oddsLoading.value = true
-    computeOdds(props.player, String(gameData.gameId))
+    computeOdds(props.player, String(gameData.gameId), props.userId)
       .then(o => { odds.value = o })
       .finally(() => { oddsLoading.value = false })
   } else {
@@ -445,19 +438,6 @@ async function placeBet() {
     })
     existingBet.value = { prediction: prediction.value, amount: betAmount.value, odds: currentOdds }
     emit('bet-placed')
-
-    notifyBetPlaced({
-      userName: authStore.user?.displayName || authStore.user?.email || 'Anonymous',
-      discordUsername: props.player.discordUsername || null,
-      playerName: props.player.gameName,
-      prediction: prediction.value,
-      amount: betAmount.value,
-      odds: currentOdds,
-      payout: Math.floor(betAmount.value * currentOdds),
-      gameId: String(liveGame.value.gameId),
-      tier: odds.value.tier,
-      rank: odds.value.rank,
-    })
   } catch (e) {
     console.error('placeBet error:', e)
     betError.value = e?.message || 'Failed to place bet. Try again.'
