@@ -198,7 +198,7 @@ const yesPercent = computed(() => {
 
 function formatGameDuration(duration) {
   const [m, s] = duration.split(':').map(Number)
-  const totalSeconds = m * 60 + s + 120
+  const totalSeconds = m * 60 + s + 90
   const newM = Math.floor(totalSeconds / 60)
   const newS = totalSeconds % 60
   return `${newM}:${String(newS).padStart(2, '0')}`

@@ -1,25 +1,45 @@
 // src/services/autoResolve.js
-// Runs every 60s — checks all pending bets, fetches last match for each player,
-// and auto-resolves bets if the game is finished.
+// Runs every 60s — checks all pending bets, and auto-resolves when a game ends.
+// Uses the shared liveGameCache (Firestore) instead of calling the Riot API directly.
 
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase'
-import { getLastMatchResult, getLiveGame } from './riot'
+import { getLastMatchResult } from './riot'
 import { resolveBets } from './bets'
+import { forceRefreshLiveGame } from './liveGameCache'
+
+const CACHE_TTL_MS = 55_000
 
 let intervalId = null
 
-// Get all unique (playerId, puuid, gameId) combos that have pending bets
+// Read live game status from Firestore cache (never calls Riot directly)
+// If cache is stale, trigger a refresh and read the fresh result
+async function getLiveGameFromCache(puuid, userId) {
+  const ref = doc(db, 'liveGameCache', puuid)
+  const snap = await getDoc(ref)
+  const data = snap.data()
+
+  const now = Date.now()
+
+  // If cache is missing or stale, force a fresh fetch then re-read
+  if (!data || now - data.fetchedAt > CACHE_TTL_MS) {
+    await forceRefreshLiveGame(puuid, userId)
+    const fresh = await getDoc(ref)
+    return fresh.data() ?? null
+  }
+
+  return data
+}
+
+// Get all unique (playerId, puuid, gameId) combos with pending bets
 async function getPendingGameEntries() {
   const q = query(collection(db, 'bets'), where('status', '==', 'pending'))
   const snap = await getDocs(q)
 
-  // Group by gameId — we only need one puuid per gameId
   const map = {}
   for (const d of snap.docs) {
     const bet = d.data()
     if (!map[bet.gameId]) {
-      // Fetch player puuid from players collection by document ID
       const playerDoc = await getDoc(doc(db, 'players', bet.playerId))
       if (playerDoc.exists()) {
         map[bet.gameId] = {
@@ -33,7 +53,7 @@ async function getPendingGameEntries() {
   return Object.values(map)
 }
 
-async function checkAndResolve() {
+async function checkAndResolve(userId) {
   console.log('[AutoResolve] Checking pending bets…')
   try {
     const entries = await getPendingGameEntries()
@@ -44,17 +64,15 @@ async function checkAndResolve() {
 
     for (const { gameId, puuid } of entries) {
       try {
-        // Step 1: check if player is still in a live game with this gameId
-        const live = await getLiveGame(puuid)
-        if (live == null) {
-            console.log(`[AutoResolve] Player not in live game for game ${gameId}`)
-        }
-        if (live && String(live.gameId) === String(gameId)) {
-          console.log(`[AutoResolve] Game ${gameId} still in progress, skipping.`)
+        // Step 1: check cache — is the player still in this live game?
+        const cached = await getLiveGameFromCache(puuid, userId)
+
+        if (cached?.isLive && cached.gameData && String(cached.gameData.gameId) === String(gameId)) {
+          console.log(`[AutoResolve] Game ${gameId} still in progress (from cache), skipping.`)
           continue
         }
 
-        // Step 2: player not in live game anymore — fetch last match result
+        // Step 2: player not live anymore — fetch match result from Riot
         const result = await getLastMatchResult(puuid)
         if (!result) {
           console.log(`[AutoResolve] No match result yet for game ${gameId}.`)
@@ -62,15 +80,11 @@ async function checkAndResolve() {
         }
 
         // Step 3: match the finished game to the bet's gameId
-        // Riot Match IDs: "EUW1_7123456789", spectator gameId is the numeric part
         const matchNumericId = result.gameId.split('_').pop()
-        console.log("matchNumericId : ", matchNumericId)
         const betNumericId = String(gameId).split('_').pop()
-        console.log("betNumericId : ", betNumericId)
-        console.log("result : ", result)
 
         if (matchNumericId !== betNumericId) {
-          console.log(`[AutoResolve] Latest match ${matchNumericId} doesn't match bet game ${betNumericId}, skipping.`)
+          console.log(`[AutoResolve] Latest match ${result.gameId} doesn't match bet game ${gameId}, skipping.`)
           continue
         }
 
@@ -86,11 +100,11 @@ async function checkAndResolve() {
   }
 }
 
-export function startAutoResolve(intervalMs = 120_000) {
-  if (intervalId) return // already running
+export function startAutoResolve(userId, intervalMs = 60_000) {
+  if (intervalId) return
   console.log('[AutoResolve] Started — checking every', intervalMs / 1000, 'seconds')
-  checkAndResolve() // run immediately on start
-  intervalId = setInterval(checkAndResolve, intervalMs)
+  checkAndResolve(userId)
+  intervalId = setInterval(() => checkAndResolve(userId), intervalMs)
 }
 
 export function stopAutoResolve() {

@@ -20,7 +20,7 @@ const authStore = useAuthStore()
 
 // Start polling when user is logged in, stop when logged out
 watch(() => authStore.isLoggedIn, (loggedIn) => {
-  if (loggedIn) startAutoResolve(60_000)
+  if (loggedIn) startAutoResolve(authStore.user?.uid, 60_000)
   else stopAutoResolve()
 }, { immediate: true })
 </script>
