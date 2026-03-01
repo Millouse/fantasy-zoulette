@@ -4,6 +4,7 @@
 import { RIOT_PLATFORM, RIOT_API_KEY } from '../config'
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '../firebase'
+import { getLiveGame, getSummonerIdFromPuuid } from './riot'
 
 // Poids de chaque tier (plus haut = meilleur joueur = favori pour WIN)
 const TIER_WEIGHT = {
@@ -33,7 +34,7 @@ async function getSummonerRank(summonerId) {
   if (!summonerId) return null
   try {
     const res = await fetch(
-      `${RIOT_PLATFORM}/lol/league/v4/entries/by-summoner/${encodeURIComponent(summonerId)}`,
+      `${RIOT_PLATFORM}/lol/league/v4/entries/by-puuid/${encodeURIComponent(summonerId)}`,
       { headers: { 'X-Riot-Token': RIOT_API_KEY } }
     )
     if (!res.ok) return null
@@ -71,39 +72,135 @@ async function getBetVolume(gameId) {
  * 2. Ajustement par le volume : si beaucoup parient YES → cote YES baisse, NO monte
  */
 export async function computeOdds(player, gameId) {
-  // Étape 1 : récupérer le rang
-  const rankEntry = await getSummonerRank(player.summonerId)
-  let baseYesOdds = 1.9 // défaut si pas de rank
+  console.log(
+    `Calculating odds for ${player.gameName} (summonerId: ${player.id}) in game ${gameId}`
+  )
+
+  /* -----------------------------
+   * 1. Get live game safely
+   * ----------------------------- */
+  const liveGame = await getLiveGame(player.puuid)
+
+  if (!liveGame?.participants || !Array.isArray(liveGame.participants)) {
+    console.warn('No live game or participants unavailable')
+
+    // Fallback odds
+    return {
+      yes: 1.5,
+      no: 1.5,
+      tier: 'UNRANKED',
+      rank: '',
+      totalBets: 0,
+      totalYes: 0,
+      totalNo: 0,
+    }
+  }
+
+  /* -----------------------------
+   * 2. Fetch all ranks in parallel
+   * ----------------------------- */
+  const ranks = await Promise.all(
+    liveGame.participants.map(async p => {
+      console.log(`Fetching rank for participant ${p.gameName} (puuid: ${p.puuid})`)
+      const summonerId = await getSummonerIdFromPuuid(p.puuid)
+      const rankEntry = summonerId
+        ? await getSummonerRank(summonerId.puuid)
+        : null
+    return {
+      puuid: p.puuid,
+      rank: rankEntry,
+      team: p.teamId === 100 ? 'blue' : 'red',
+    }
+  })
+)
+
+  /* -----------------------------
+   * 3. Identify player team & rank
+   * ----------------------------- */
+  const playerData = ranks.find(r => r.puuid === player.puuid)
+
+  const playerTeam = playerData?.team ?? null
+  const rankEntry = playerData?.rank ?? null
 
   let tier = 'UNRANKED'
   let rank = ''
+  let baseYesOdds = 1.3
 
-  if (rankEntry) {
+  /* -----------------------------
+   * 4. Compute team averages
+   * ----------------------------- */
+  console.log('DEBUG rankEntry:', rankEntry)
+  console.log('DEBUG playerTeam:', playerTeam)
+  console.log('DEBUG ranks:', ranks)
+  if (rankEntry && playerTeam) {
     tier = rankEntry.tier
     rank = rankEntry.rank
-    const score = eloScore(tier, rank) // 0 (Iron IV) → 39 (Challenger I)
-    // Plus le score est haut → joueur fort → WIN plus probable → cote WIN basse
-    // Score 0 → cote YES 3.2x (underdog)
-    // Score 39 → cote YES 1.2x (favori)
+
+    let score = eloScore(tier, rank)
+
+    let blueTotal = 0
+    let blueCount = 0
+    let redTotal = 0
+    let redCount = 0
+
+    for (const r of ranks) {
+      if (!r.rank) continue
+
+      const s = eloScore(r.rank.tier, r.rank.rank)
+
+      if (r.team === 'blue') {
+        blueTotal += s
+        blueCount++
+      } else {
+        redTotal += s
+        redCount++
+      }
+    }
+
+    const blueAvg = blueCount ? blueTotal / blueCount : 0
+    const redAvg = redCount ? redTotal / redCount : 0
+    console.log("Team averages - Blue: ", blueAvg, "Red: ", redAvg)
+    console.log("Player team : ", playerTeam, "Player score : ", score)
+
+    // Team strength adjustment (max 30%)
+    if (
+      (playerTeam === 'blue' && blueAvg > redAvg) ||
+      (playerTeam === 'red' && redAvg > blueAvg)
+    ) {
+      const teamBoost = Math.abs(blueAvg - redAvg) * 0.3
+      score -= teamBoost
+    }
+
+    score = Math.max(0, Math.min(39, score))
+
+    // Map score → odds
     baseYesOdds = +(3.2 - (score / 39) * 2.0).toFixed(2)
   }
 
-  const baseNoOdds = +(5.0 - baseYesOdds).toFixed(2) // cotes opposées qui somment ~4.2
+  const baseNoOdds = +(5.0 - baseYesOdds).toFixed(2)
 
-  // Étape 2 : ajustement par volume de paris
+  /* -----------------------------
+   * 5. Volume-based adjustment
+   * ----------------------------- */
   const { totalYes, totalNo, total } = await getBetVolume(gameId)
 
   let yesOdds = baseYesOdds
   let noOdds = baseNoOdds
 
   if (total > 0) {
-    const yesFraction = totalYes / total // 0 = personne parie YES, 1 = tout le monde parie YES
-    // Si beaucoup parient YES : cote YES baisse (jusqu'à -30%), cote NO monte
-    const adjustment = (yesFraction - 0.5) * 0.6 // entre -0.3 et +0.3
+    const yesFraction = totalYes / total
+    const adjustment = (yesFraction - 0.5) * 0.6 // max 30% adjustment
+
     yesOdds = Math.max(1.1, +(baseYesOdds - adjustment).toFixed(2))
     noOdds = Math.max(1.1, +(baseNoOdds + adjustment).toFixed(2))
   }
 
+  /* -----------------------------
+   * 6. Final result
+   * ----------------------------- */
+  console.log(
+    `Odds for ${player.gameName} in game ${gameId}: YES ${yesOdds} (base ${baseYesOdds}), NO ${noOdds} (base ${baseNoOdds}), tier ${tier} ${rank}, total bets ${total} (YES: ${totalYes}, NO: ${totalNo})`
+  )
   return {
     yes: yesOdds,
     no: noOdds,

@@ -13,7 +13,7 @@ async function riotFetch(url) {
 
     if (!res.ok) {
       console.error(`Riot API Error: ${res.status}`);
-      return null;
+      return res.status === 429 ? { rateLimited: true } : null;
     }
 
     return await res.json();
@@ -21,6 +21,18 @@ async function riotFetch(url) {
     console.error("Network error:", e);
     return null;
   }
+}
+
+export async function getSummonerIdFromPuuid(puuid) {
+  if (!puuid) return null
+
+  console.log("Resolving summonerId from puuid:", puuid)
+    const res = await riotFetch(
+      `${RIOT_PLATFORM}/lol/summoner/v4/summoners/by-puuid/${encodeURIComponent(puuid)}`
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.id
 }
 
 // Resolve PUUID from Riot ID (gameName + tagLine) — uses Account v1
@@ -42,7 +54,6 @@ export async function getLiveGame(puuid) {
   const live = await riotFetch(
     `${RIOT_PLATFORM}/lol/spectator/v5/active-games/by-summoner/${encodeURIComponent(puuid)}`
   );
-  
   return live;
 }
 

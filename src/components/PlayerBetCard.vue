@@ -1,10 +1,14 @@
 <template>
   <div class="bet-card" :class="{ 'is-live': liveGame, 'is-offline': !liveGame && !checking }">
+    <div v-if="rateLimited || tooManyRequests" class="rate-limit-banner">
+      🚫 Too many requests — please wait a moment and try again.
+    </div>
     <div class="card-header">
       <img :src="`/assets/16.4.1/img/profileicon/${player.profileIconId}.png`" class="player-icon" alt="icon" />
       <div class="player-info">
         <div class="player-name">{{ player.gameName }}</div>
         <div class="player-level">LVL {{ player.summonerLevel }}</div>
+        <!-- <div class="player-level">puiid : {{ player.puuid }}</div> -->
       </div>
       <div class="live-indicator" v-if="liveGame"><span class="live-dot"></span> LIVE</div>
       <div class="offline-indicator" v-else-if="!checking">NOT IN GAME</div>
@@ -22,7 +26,7 @@
       </div>
       <div class="game-detail">
         <span class="detail-label">Champion</span>
-        <img :src="`/assets/16.4.1/img/champion/${championIdToName(liveGame.participants[0].championId)}.png`" class="champ-icon" />
+        <img :src="`/assets/16.4.1/img/champion/${championIdToName(liveGame.participants.find(e => e.puuid === player.puuid)?.championId || 0)}.png`" class="champ-icon" />
       </div>
     </div>
 
@@ -121,11 +125,13 @@ const props = defineProps({
   userCoins: Number,
   userId: String,
   refreshTick: Number,
+  tooManyRequests: Boolean
 })
 const emit = defineEmits(['bet-placed'])
 
 const liveGame = ref(null)
 const checking = ref(true)
+const rateLimited = ref(false)
 const existingBet = ref(null)
 const prediction = ref('')
 const betAmount = ref(null)
@@ -373,22 +379,33 @@ function championIdToName(champId) {
 async function checkLiveGame() {
   if (!props.userId) return
   checking.value = true
+  rateLimited.value = false
+
   try {
     const game = await getLiveGame(props.player.puuid)
     liveGame.value = game
+
     if (game && props.userId) {
       const alreadyBet = await hasUserBetOnGame(props.userId, String(game.gameId))
       if (alreadyBet) {
         const bets = await getUserBets(props.userId)
-        existingBet.value = bets.find(b => b.gameId === String(game.gameId) && b.playerId === props.player.id) || null
+        existingBet.value =
+          bets.find(b => b.gameId === String(game.gameId) && b.playerId === props.player.id) || null
       }
+
       oddsLoading.value = true
       computeOdds(props.player, String(game.gameId))
         .then(o => { odds.value = o })
         .finally(() => { oddsLoading.value = false })
     }
   } catch (e) {
-    liveGame.value = null
+    if (e?.rateLimited) {
+      rateLimited.value = true
+      liveGame.value = null
+    } else {
+      console.error('checkLiveGame error:', e)
+      liveGame.value = null
+    }
   } finally {
     checking.value = false
   }
