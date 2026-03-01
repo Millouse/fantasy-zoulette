@@ -34,14 +34,11 @@ export async function notifyBetPlaced({ userName, discordUsername, playerName, p
   const won = prediction === 'yes'
   const predLabel = won ? '✅ WIN' : '❌ LOSE'
 
-  // @mention if discord username provided
-  const mention = discordUsername ? `@${discordUsername}` : userName || 'Anonymous'
-
   const embed = {
     title: `🚨🚨🚨🚨🚨 NOUVEAU BET 🚨🚨🚨🚨🚨`,
     color: 0xFF6600,
     fields: [
-      { name: '👤 BETTOR', value: mention, inline: true },
+      { name: '👤 BETTOR', value: userName, inline: true },
       { name: '🎮 PLAYER', value: playerName, inline: true },
       { name: '📊 PREDICTION', value: predLabel, inline: true },
       { name: '🪙 ZOULETTESCOINS', value: `${amount.toLocaleString()} ZC`, inline: true },
