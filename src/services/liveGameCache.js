@@ -102,17 +102,28 @@ async function _doFetch(puuid, userId) {
 
 /**
  * Start the 60s auto-poll for all tracked players.
- * Should be called once from Betting.vue on mount.
+ * SINGLETON — safe to call multiple times, only one poller ever runs.
  * Returns a stop function.
  */
+let _pollerTimer = null
+let _pollerGetPuuids = null
+let _pollerUserId = null
+
 export function startLiveGamePoller(getPlayerPuuids, userId) {
-  let timer = null
-  console.log("Starting live game poller…")
+  // Update the puuid getter and userId in case players list changed
+  _pollerGetPuuids = getPlayerPuuids
+  _pollerUserId = userId
+
+  // Already running — don't create another interval
+  if (_pollerTimer !== null) {
+    console.log('[liveGameCache] Poller already running, skipping restart')
+    return stopLiveGamePoller
+  }
+
   async function poll() {
-    const puuids = getPlayerPuuids()
+    const puuids = _pollerGetPuuids?.() ?? []
     if (!puuids.length) return
 
-    // Only fetch players whose cache is actually stale
     const now = Date.now()
     await Promise.all(puuids.map(async (puuid) => {
       if (_fetching.has(puuid)) return
@@ -120,17 +131,27 @@ export function startLiveGamePoller(getPlayerPuuids, userId) {
         const snap = await getDoc(doc(db, 'liveGameCache', puuid))
         const data = snap.data()
         if (!data || now - data.fetchedAt > CACHE_TTL_MS) {
-          await _doFetch(puuid, userId)
+          await _doFetch(puuid, _pollerUserId)
         }
       } catch {
-        await _doFetch(puuid, userId)
+        await _doFetch(puuid, _pollerUserId)
       }
     }))
   }
 
-  // Initial poll on start
-  poll()
-  timer = setInterval(poll, 60_000)
+  console.log('[liveGameCache] Poller started')
+  poll() // initial poll immediately
+  _pollerTimer = setInterval(poll, 60_000)
 
-  return () => clearInterval(timer)
+  return stopLiveGamePoller
+}
+
+export function stopLiveGamePoller() {
+  if (_pollerTimer !== null) {
+    clearInterval(_pollerTimer)
+    _pollerTimer = null
+    _pollerGetPuuids = null
+    _pollerUserId = null
+    console.log('[liveGameCache] Poller stopped')
+  }
 }

@@ -15,13 +15,26 @@
 import { watch } from 'vue'
 import { useAuthStore } from './stores/auth'
 import { startAutoResolve, stopAutoResolve } from './services/autoResolve'
+import { startLiveGamePoller, stopLiveGamePoller } from './services/liveGameCache'
+import { getPlayers } from './services/players'
 
 const authStore = useAuthStore()
 
-// Start polling when user is logged in, stop when logged out
-watch(() => authStore.isLoggedIn, (loggedIn) => {
-  if (loggedIn) startAutoResolve(authStore.user?.uid, 60_000)
-  else stopAutoResolve()
+let players = []
+
+watch(() => authStore.isLoggedIn, async (loggedIn) => {
+  if (loggedIn) {
+    const uid = authStore.user?.uid
+
+    // Load players once, start the singleton poller
+    players = await getPlayers()
+    startLiveGamePoller(() => players.map(p => p.puuid), uid)
+
+    startAutoResolve(uid, 60_000)
+  } else {
+    stopLiveGamePoller()
+    stopAutoResolve()
+  }
 }, { immediate: true })
 </script>
 

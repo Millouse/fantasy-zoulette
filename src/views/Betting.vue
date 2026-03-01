@@ -48,7 +48,7 @@ import { useAuthStore } from '../stores/auth'
 import Navbar from '../components/Navbar.vue'
 import PlayerBetCard from '../components/PlayerBetCard.vue'
 import { getPlayers } from '../services/players'
-import { startLiveGamePoller, forceRefreshAll } from '../services/liveGameCache'
+import { forceRefreshAll } from '../services/liveGameCache'
 
 const authStore = useAuthStore()
 const players = ref([])
@@ -61,7 +61,6 @@ const countdown = ref(60)
 // Read from Firestore cache so it's accurate even across tabs/pages
 const lastFetchedAt = ref(Date.now())
 
-let stopPoller = null
 let countdownTimer = null
 let unsubFetchedAt = null
 
@@ -110,13 +109,6 @@ onMounted(async () => {
   await loadPlayers()
   loading.value = false
 
-  const uid = authStore.user?.uid
-
-  stopPoller = startLiveGamePoller(
-    () => players.value.map(p => p.puuid),
-    uid
-  )
-
   // Watch first available player's cache for fetch timestamps
   if (players.value.length > 0) {
     watchFetchTimestamp(players.value[0].puuid)
@@ -126,7 +118,6 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  stopPoller?.()
   unsubFetchedAt?.()
   clearInterval(countdownTimer)
 })
