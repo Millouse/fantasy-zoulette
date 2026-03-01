@@ -17,6 +17,7 @@
               <span class="tag-hash">#</span>
               <input v-model="newTagLine" placeholder="TAG" @keyup.enter="addPlayer" class="input-tag" />
             </div>
+            <input v-model="newDiscord" placeholder="Discord (optionnel)" @keyup.enter="addPlayer" class="input-discord" />
             <button class="btn-primary" style="width:auto;white-space:nowrap" @click="addPlayer" :disabled="addingPlayer">
               {{ addingPlayer ? 'Ajout…' : '+ Ajouter' }}
             </button>
@@ -31,8 +32,7 @@
               <img :src="`/assets/16.4.1/img/profileicon/${p.profileIconId}.png`" class="player-icon" />
               <div class="player-details">
                 <span class="player-name">{{ p.gameName }}<span class="player-tag">#{{ p.tagLine }}</span></span>
-                <span class="player-lvl">LVL {{ p.summonerLevel }}</span>
-                <span class="player-lvl">Puuid: {{ p.puuid }}</span>
+                <span class="player-lvl">LVL {{ p.summonerLevel }}{{ p.discordUsername ? ' · @' + p.discordUsername : '' }}</span>
               </div>
               <button class="btn-remove" @click="removePlayer(p.id)">✕</button>
             </div>
@@ -119,6 +119,7 @@ const players = ref([])
 const playersLoading = ref(true)
 const newGameName = ref('')
 const newTagLine = ref('')
+const newDiscord = ref('')
 const addingPlayer = ref(false)
 const addError = ref('')
 const addSuccess = ref('')
@@ -134,10 +135,11 @@ async function addPlayer() {
   if (!newGameName.value.trim() || !newTagLine.value.trim()) return
   addingPlayer.value = true
   try {
-    await addPlayerService(newGameName.value.trim(), newTagLine.value.trim())
+    await addPlayerService(newGameName.value.trim(), newTagLine.value.trim(), newDiscord.value.trim())
     addSuccess.value = `${newGameName.value}#${newTagLine.value} ajouté !`
     newGameName.value = ''
     newTagLine.value = ''
+    newDiscord.value = ''
     await loadPlayers()
   } catch (e) {
     addError.value = e.message || 'Échec de l\'ajout du joueur.'
@@ -225,8 +227,9 @@ onMounted(() => { loadPlayers(); loadUsers() })
 .form-group { margin-bottom: 14px; }
 .form-group label { color: var(--text-muted); display: block; font-size: 11px; letter-spacing: 0.1em; margin-bottom: 7px; text-transform: uppercase; }
 
-.add-player-form { display: flex; gap: 8px; margin-bottom: 4px; align-items: center; }
-.input-game-name { flex: 2; }
+.add-player-form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; align-items: center; }
+.input-game-name { flex: 2; min-width: 120px; }
+.input-discord { flex: 2; min-width: 120px; }
 .tag-wrapper { position: relative; flex: 1; display: flex; align-items: center; }
 .tag-hash { position: absolute; left: 12px; color: var(--cyan); font-weight: 700; font-size: 15px; pointer-events: none; z-index: 1; }
 .input-tag { padding-left: 24px !important; }

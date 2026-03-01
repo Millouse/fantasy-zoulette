@@ -13,7 +13,7 @@ export async function getPlayers() {
 }
 
 // Admin: add a player by Riot ID (gameName + tagLine)
-export async function addPlayer(gameName, tagLine) {
+export async function addPlayer(gameName, tagLine, discordUsername = '') {
   // Step 1: resolve PUUID from Riot ID
   const account = await getAccountByRiotId(gameName, tagLine)
   if (!account) throw new Error(`Riot ID "${gameName}#${tagLine}" introuvable.`)
@@ -31,6 +31,7 @@ export async function addPlayer(gameName, tagLine) {
     ...(summoner?.id ? { summonerId: summoner.id } : {}),
     profileIconId: summoner?.profileIconId ?? 29,
     summonerLevel: summoner?.summonerLevel ?? '—',
+    discordUsername: discordUsername || '',
     addedAt: new Date().toISOString(),
   })
   return ref.id

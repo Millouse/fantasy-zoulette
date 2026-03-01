@@ -7,9 +7,12 @@
           <h1 class="page-title">⚡ Live Bets</h1>
           <p class="page-subtitle">Place your bets on players currently in a live game</p>
         </div>
-        <button class="btn-refresh" @click="refreshAll" :class="{ spinning: refreshing }">
-          ↻ Refresh
-        </button>
+        <div class="refresh-area">
+          <span class="next-refresh">next refresh in {{ countdown }}s</span>
+          <button class="btn-refresh" @click="refreshAll" :class="{ spinning: refreshing }">
+            ↻ Refresh
+          </button>
+        </div>
       </div>
 
       <div v-if="loading" class="loading-grid">
@@ -38,19 +41,30 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { onSnapshot, doc } from 'firebase/firestore'
+import { db } from '../firebase'
 import { useAuthStore } from '../stores/auth'
 import Navbar from '../components/Navbar.vue'
 import PlayerBetCard from '../components/PlayerBetCard.vue'
 import { getPlayers } from '../services/players'
+import { startLiveGamePoller, forceRefreshAll } from '../services/liveGameCache'
 
 const authStore = useAuthStore()
 const players = ref([])
 const loading = ref(true)
 const refreshing = ref(false)
 const refreshTick = ref(0)
+const countdown = ref(60)
 
-// Hide the player matching the logged-in user's linked Riot account
+// Tracks the real timestamp of the last completed Riot API fetch
+// Read from Firestore cache so it's accurate even across tabs/pages
+const lastFetchedAt = ref(Date.now())
+
+let stopPoller = null
+let countdownTimer = null
+let unsubFetchedAt = null
+
 const visiblePlayers = computed(() => {
   const userPuuid = authStore.user?.riotPuuid
   if (!userPuuid) return players.value
@@ -61,9 +75,32 @@ async function loadPlayers() {
   players.value = await getPlayers()
 }
 
+// Watch the first player's cache doc to get real fetchedAt timestamps
+// When the poller writes a new fetchedAt (even for offline players), the
+// countdown resets correctly
+function watchFetchTimestamp(puuid) {
+  unsubFetchedAt?.()
+  unsubFetchedAt = onSnapshot(doc(db, 'liveGameCache', puuid), (snap) => {
+    const data = snap.data()
+    if (data?.fetchedAt) {
+      lastFetchedAt.value = data.fetchedAt
+    }
+  })
+}
+
+// Countdown ticks every second, always computed from elapsed time
+// Never drifts, never pauses, auto-resets when fetchedAt updates
+function startCountdownTick() {
+  countdownTimer = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - lastFetchedAt.value) / 1000)
+    countdown.value = Math.max(0, 60 - elapsed)
+  }, 1000)
+}
+
 async function refreshAll() {
   refreshing.value = true
-  refreshTick.value++  // triggers watch in each PlayerBetCard
+  refreshTick.value++
+  await forceRefreshAll(authStore.user?.uid)
   setTimeout(() => refreshing.value = false, 800)
 }
 
@@ -72,6 +109,26 @@ function onBetPlaced() {}
 onMounted(async () => {
   await loadPlayers()
   loading.value = false
+
+  const uid = authStore.user?.uid
+
+  stopPoller = startLiveGamePoller(
+    () => players.value.map(p => p.puuid),
+    uid
+  )
+
+  // Watch first available player's cache for fetch timestamps
+  if (players.value.length > 0) {
+    watchFetchTimestamp(players.value[0].puuid)
+  }
+
+  startCountdownTick()
+})
+
+onUnmounted(() => {
+  stopPoller?.()
+  unsubFetchedAt?.()
+  clearInterval(countdownTimer)
 })
 </script>
 
@@ -82,6 +139,9 @@ onMounted(async () => {
   justify-content: space-between;
   margin-bottom: 32px;
 }
+
+.refresh-area { align-items: center; display: flex; gap: 10px; }
+.next-refresh { color: var(--text-dim); font-size: 11px; letter-spacing: 0.04em; }
 
 .btn-refresh {
   background: var(--surface2);

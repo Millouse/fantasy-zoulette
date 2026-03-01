@@ -65,14 +65,11 @@
     </div>
 
     <div v-else-if="liveGame && !existingBet" class="bet-form">
-      <!-- Locked state -->
       <div v-if="betLocked" class="bet-locked">
         <div class="lock-icon">🔒</div>
         <div class="lock-title">Bets Closed</div>
         <div class="lock-sub">Betting is locked after 10 minutes of play</div>
       </div>
-
-      <!-- Open state -->
       <template v-else>
         <div class="question">Will <strong>{{ player.gameName }}</strong> win?</div>
         <div v-if="timeUntilLock" class="lock-countdown">
@@ -115,10 +112,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { getLiveGame } from '../services/riot'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { subscribeLiveGame } from '../services/liveGameCache'
 import { placeBet as placeBetService, hasUserBetOnGame, getUserBets } from '../services/bets'
 import { computeOdds } from '../services/odds'
+import { notifyBetPlaced } from '../services/discord'
+import { useAuthStore } from '../stores/auth'
+
+const authStore = useAuthStore()
 
 const props = defineProps({
   player: Object,
@@ -141,16 +142,20 @@ const odds = ref({ yes: 1.9, no: 1.9, tier: 'UNRANKED', rank: '', totalYes: 0, t
 const oddsLoading = ref(false)
 const quickAmounts = [50, 100, 250, 500]
 
-const BET_LOCK_SECONDS = 600 // 10 minutes
+let unsubCache = null
 
-const betLocked = computed(() => {
-  if (!liveGame.value) return false
-  return liveGame.value.gameLength >= BET_LOCK_SECONDS
+const BET_LOCK_SECONDS = 600
+
+const realGameLength = computed(() => {
+  if (!liveGame.value) return 0
+  const fetchedAt = liveGame.value._fetchedAt || Date.now()
+  return Math.floor(liveGame.value.gameLength) + Math.floor((now.value - fetchedAt) / 1000)
 })
 
+const betLocked = computed(() => realGameLength.value >= BET_LOCK_SECONDS)
+
 const timeUntilLock = computed(() => {
-  if (!liveGame.value) return null
-  const remaining = BET_LOCK_SECONDS - liveGame.value.gameLength
+  const remaining = BET_LOCK_SECONDS - realGameLength.value
   if (remaining <= 0) return null
   const m = Math.floor(remaining / 60)
   const s = Math.floor(remaining % 60)
@@ -163,11 +168,17 @@ const gameMode = computed(() => {
   return modes[liveGame.value.gameMode] || liveGame.value.gameMode
 })
 
+const now = ref(Date.now())
+let clockTimer = null
+
 const gameDuration = computed(() => {
   if (!liveGame.value) return ''
-  const s = Math.floor(liveGame.value.gameLength)
-  const m = Math.floor(s / 60)
-  const sec = s % 60
+  // gameLength at fetch time + seconds elapsed since fetch
+  const fetchedAt = liveGame.value._fetchedAt || Date.now()
+  const secondsSinceFetch = Math.floor((now.value - fetchedAt) / 1000)
+  const total = Math.floor(liveGame.value.gameLength) + secondsSinceFetch
+  const m = Math.floor(total / 60)
+  const sec = total % 60
   return `${m}:${String(sec).padStart(2, '0')}`
 })
 
@@ -376,39 +387,41 @@ function championIdToName(champId) {
   return champs[champId] || 'Aatrox'
 }
 
-async function checkLiveGame() {
+// Handle cache update from Firestore subscription
+async function onCacheUpdate({ gameData, isLive, fetchedAt }) {
   if (!props.userId) return
-  checking.value = true
-  rateLimited.value = false
 
-  try {
-    const game = await getLiveGame(props.player.puuid)
-    liveGame.value = game
-
-    if (game && props.userId) {
-      const alreadyBet = await hasUserBetOnGame(props.userId, String(game.gameId))
-      if (alreadyBet) {
-        const bets = await getUserBets(props.userId)
-        existingBet.value =
-          bets.find(b => b.gameId === String(game.gameId) && b.playerId === props.player.id) || null
-      }
-
-      oddsLoading.value = true
-      computeOdds(props.player, String(game.gameId))
-        .then(o => { odds.value = o })
-        .finally(() => { oddsLoading.value = false })
-    }
-  } catch (e) {
-    if (e?.rateLimited) {
-      rateLimited.value = true
-      liveGame.value = null
-    } else {
-      console.error('checkLiveGame error:', e)
-      liveGame.value = null
-    }
-  } finally {
-    checking.value = false
+  if (isLive && gameData) {
+    // Attach fetchedAt so gameDuration can compute elapsed time
+    liveGame.value = { ...gameData, _fetchedAt: fetchedAt || Date.now() }
+  } else {
+    liveGame.value = null
   }
+  checking.value = false
+
+  if (isLive && gameData && props.userId) {
+    const alreadyBet = await hasUserBetOnGame(props.userId, String(gameData.gameId))
+    if (alreadyBet) {
+      const bets = await getUserBets(props.userId)
+      existingBet.value = bets.find(b =>
+        b.gameId === String(gameData.gameId) && b.playerId === props.player.id
+      ) || null
+    } else {
+      existingBet.value = null
+    }
+
+    oddsLoading.value = true
+    computeOdds(props.player, String(gameData.gameId))
+      .then(o => { odds.value = o })
+      .finally(() => { oddsLoading.value = false })
+  } else {
+    existingBet.value = null
+  }
+}
+
+function subscribeToCache() {
+  unsubCache?.()
+  unsubCache = subscribeLiveGame(props.player.puuid, props.userId, onCacheUpdate)
 }
 
 async function placeBet() {
@@ -432,6 +445,19 @@ async function placeBet() {
     })
     existingBet.value = { prediction: prediction.value, amount: betAmount.value, odds: currentOdds }
     emit('bet-placed')
+
+    notifyBetPlaced({
+      userName: authStore.user?.displayName || authStore.user?.email || 'Anonymous',
+      discordUsername: props.player.discordUsername || null,
+      playerName: props.player.gameName,
+      prediction: prediction.value,
+      amount: betAmount.value,
+      odds: currentOdds,
+      payout: Math.floor(betAmount.value * currentOdds),
+      gameId: String(liveGame.value.gameId),
+      tier: odds.value.tier,
+      rank: odds.value.rank,
+    })
   } catch (e) {
     console.error('placeBet error:', e)
     betError.value = e?.message || 'Failed to place bet. Try again.'
@@ -440,10 +466,25 @@ async function placeBet() {
   }
 }
 
-onMounted(checkLiveGame)
+onMounted(() => {
+  if (props.userId) subscribeToCache()
+  clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
+})
 
+onUnmounted(() => {
+  unsubCache?.()
+  clearInterval(clockTimer)
+})
+
+// Re-subscribe if userId becomes available late (auth delay)
+watch(() => props.userId, (uid) => {
+  if (uid) subscribeToCache()
+})
+
+// refreshTick from parent → just re-read from cache (no extra API call needed,
+// forceRefreshAll in Betting.vue already triggered the fetch)
 watch(() => props.refreshTick, (val) => {
-  if (val > 0) checkLiveGame()
+  if (val > 0 && props.userId) subscribeToCache()
 })
 </script>
 
@@ -569,37 +610,24 @@ watch(() => props.refreshTick, (val) => {
 .existing-bet-choice.yes { color: var(--green); }
 .existing-bet-choice.no { color: var(--red); }
 .existing-bet-note { color: var(--text-dim); font-size: 11px; }
-
 .existing-bet-payout { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
 .payout-highlight { color: var(--green); font-weight: 700; }
 
 .bet-locked {
-  align-items: center;
-  background: rgba(255,71,87,0.06);
-  border: 1px solid rgba(255,71,87,0.2);
-  border-radius: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 20px;
-  text-align: center;
+  align-items: center; background: rgba(255,71,87,0.06); border: 1px solid rgba(255,71,87,0.2);
+  border-radius: 10px; display: flex; flex-direction: column; gap: 6px; padding: 20px; text-align: center;
 }
 .lock-icon { font-size: 28px; }
 .lock-title { color: var(--red); font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .lock-sub { color: var(--text-dim); font-size: 12px; }
 
 .lock-countdown {
-  background: rgba(255,200,0,0.08);
-  border: 1px solid rgba(255,200,0,0.25);
-  border-radius: 8px;
-  color: var(--gold);
-  font-size: 12px;
-  margin-bottom: 4px;
-  padding: 6px 12px;
-  text-align: center;
+  background: rgba(255,200,0,0.08); border: 1px solid rgba(255,200,0,0.25); border-radius: 8px;
+  color: var(--gold); font-size: 12px; margin-bottom: 4px; padding: 6px 12px; text-align: center;
 }
 .lock-countdown strong { font-weight: 700; }
 
+.error-msg { color: var(--red); font-size: 12px; text-align: center; }
 .no-game { color: var(--text-dim); font-size: 13px; padding: 8px 0; text-align: center; }
 
 @keyframes fadeUp {
