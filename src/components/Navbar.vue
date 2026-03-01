@@ -12,6 +12,9 @@
       <RouterLink to="/my-bets" :class="{ active: route.path === '/my-bets' }">
         <span class="nav-icon">📋</span> My Bets
       </RouterLink>
+      <RouterLink to="/leaderboard" :class="{ active: route.path === '/leaderboard' }">
+        <span class="nav-icon">🏆</span> Leaderboard
+      </RouterLink>
       <RouterLink v-if="authStore.isAdmin" to="/admin" :class="{ active: route.path === '/admin' }" class="admin-link">
         <span class="nav-icon">⚙️</span> Admin
       </RouterLink>
