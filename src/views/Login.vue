@@ -20,7 +20,9 @@
         <div style="text-align:right; margin-bottom:24px; margin-top:-8px">
           <RouterLink to="/forgot-password" style="font-size:13px">Forgot password?</RouterLink>
         </div>
-
+        <div class="gif-wrapper" style="text-align:center; margin-bottom:12px">
+          <img src="/patapim.gif" alt="Patapim" style="max-width:220px; height:auto" />
+        </div>
         <button class="btn-primary" type="submit" :disabled="loading">
           {{ loading ? 'Connecting…' : 'Sign In' }}
         </button>
