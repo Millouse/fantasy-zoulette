@@ -397,7 +397,9 @@ async function onCacheUpdate({ gameData, isLive, fetchedAt }) {
     if (alreadyBet) {
       const bets = await getUserBets(props.userId)
       existingBet.value = bets.find(b =>
-        b.gameId === String(gameData.gameId) && b.playerId === props.player.id
+        b.gameId === String(gameData.gameId) &&
+        b.playerId === props.player.id &&
+        b.type !== 'stat'
       ) || null
     } else {
       existingBet.value = null

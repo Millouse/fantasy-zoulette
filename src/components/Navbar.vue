@@ -9,6 +9,9 @@
       <RouterLink to="/betting" :class="{ active: route.path === '/betting' }">
         <span class="nav-icon">🎯</span> Bet Now
       </RouterLink>
+      <RouterLink to="/stat-bets" :class="{ active: route.path === '/stat-bets' }">
+        <span class="nav-icon">📊</span> Stats Bets
+      </RouterLink>
       <RouterLink to="/my-bets" :class="{ active: route.path === '/my-bets' }">
         <span class="nav-icon">📋</span> My Bets
       </RouterLink>

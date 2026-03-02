@@ -11,6 +11,7 @@ import Betting from '../views/Betting.vue'
 import MyBets from '../views/MyBets.vue'
 import Admin from '../views/Admin.vue'
 import Leaderboard from '../views/Leaderboard.vue'
+import StatBets from '../views/Statbets.vue'
 
 const routes = [
   { path: '/', redirect: '/betting' },
@@ -18,6 +19,7 @@ const routes = [
   { path: '/register', component: Register, meta: { guestOnly: true } },
   { path: '/forgot-password', component: ForgotPassword, meta: { guestOnly: true } },
   { path: '/betting', component: Betting, meta: { requiresAuth: true } },
+  { path: '/stat-bets', component: StatBets, meta: { requiresAuth: true } },
   { path: '/my-bets', component: MyBets, meta: { requiresAuth: true } },
   { path: '/leaderboard', component: Leaderboard, meta: { requiresAuth: true } },
   { path: '/profile', component: Profile, meta: { requiresAuth: true } },
