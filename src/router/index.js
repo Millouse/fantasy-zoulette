@@ -11,7 +11,7 @@ import Betting from '../views/Betting.vue'
 import MyBets from '../views/MyBets.vue'
 import Admin from '../views/Admin.vue'
 import Leaderboard from '../views/Leaderboard.vue'
-import StatBets from '../views/Statbets.vue'
+import StatBets from '../views/StatBets.vue'
 
 const routes = [
   { path: '/', redirect: '/betting' },
